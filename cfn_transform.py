@@ -21,6 +21,8 @@ class CloudFormationTemplateTransform(object):
     If a method is defined named process_resource, it will be applied to the resources
     in the template. A resource type spec (a string or regex object, or a list of those)
     can be defined in the field PROCESS_RESOURCE_TYPE_SPEC to filter the resources processed.
+    If a more complex transform needs to be done that doesn't fit into those options, an
+    _apply method can be defined that will replace the built-in transformation steps.
     """
     
     @classmethod
@@ -104,14 +106,27 @@ class CloudFormationTemplateTransform(object):
             resources.
           - The process_resource method receives the resource logical id and the resource
             definition. It can return a dict of new resources to add. Emptying the
-            contents of the input resource will cause it to be removed.  
+            contents of the input resource will cause it to be removed.
         Hooks can be provided for the above steps by defining methods named update_before_X
         or update_after_X, and additionally update_at_start and update_at_end. These
         are called with no arguments.
+        
+        Instead of overriding this method to perform more complex transforms, implement the
+        _apply method.
         """
         if self.applied:
             raise RuntimeError("Transform applied more than once")
         
+        if hasattr(self, '_apply'):
+            self._apply()
+        else:
+            self._default_apply()
+        
+        self.applied = True
+        
+        return self.template
+    
+    def _default_apply(self):
         def hook(*args):
             for name in args:
                 method_name = 'update_{}'.format(name)
@@ -159,11 +174,7 @@ class CloudFormationTemplateTransform(object):
         
         hook('after_process_resource')
         
-        self.applied = True
-        
         hook('at_end')
-        
-        return self.template
     
     @classmethod
     def main(cls, args=None):
