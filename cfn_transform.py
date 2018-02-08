@@ -121,7 +121,9 @@ class CloudFormationTemplateTransform(object):
         hook('at_start', 'before_subtransformers')
         
         for subtransformer in self.subtransformers():
-            self.template = subtransformer.apply(self.template)
+            if inspect.isclass(subtransformer):
+                subtransformer = subtransformer(self.template)
+            self.template = subtransformer.apply()
         
         hook('after_subtransformers', 'before_sections')
         
