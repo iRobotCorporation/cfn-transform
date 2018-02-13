@@ -1,1 +1,2 @@
--e git://github.com/benkehoe/file-transformer.git@develop#egg=file-transformer
+pyyaml
+git+git://github.com/benkehoe/file-transformer.git

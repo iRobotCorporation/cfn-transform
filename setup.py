@@ -10,7 +10,7 @@ setup(
             'cfn-transform = cfn_transform:module_main',
         ],
     },
-    install_requires=["file-transformer"],
+    install_requires=["pyyaml"],
     author='Ben Kehoe',
     author_email='bkehoe@irobot.com',
     project_urls={

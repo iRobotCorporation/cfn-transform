@@ -7,7 +7,12 @@ import six
 
 import yaml
 
-import file_transformer
+def _import_file_transformer():
+    try:
+        import file_transformer
+        return file_transformer
+    except Exception as e:
+        sys.exit("Can't import file_transformer. See https://github.com/benkehoe/file-transformer . {}".format(e))
 
 class CloudFormationTemplateTransform(object):
     """A class for creating transforms to CloudFormation templates.
@@ -111,22 +116,19 @@ class CloudFormationTemplateTransform(object):
         or update_after_X, and additionally update_at_start and update_at_end. These
         are called with no arguments.
         
-        Instead of overriding this method to perform more complex transforms, implement the
-        _apply method.
+        Instead of overriding this method to perform more complex transforms, override the
+        _apply method, which will preserve the housekeeping that this class performs.
         """
         if self.applied:
             raise RuntimeError("Transform applied more than once")
         
-        if hasattr(self, '_apply'):
-            self._apply()
-        else:
-            self._default_apply()
+        self._apply()
         
         self.applied = True
         
         return self.template
     
-    def _default_apply(self):
+    def _apply(self):
         def hook(*args):
             for name in args:
                 method_name = 'update_{}'.format(name)
@@ -181,6 +183,7 @@ class CloudFormationTemplateTransform(object):
         """Run the given CloudFormationTemplateTransform class
         against commandline inputs, supporting both files and stdin/out.
         """
+        file_transformer = _import_file_transformer()
         
         def loader(input_stream, args):
             return yaml.load(input_stream)
@@ -197,6 +200,8 @@ class CloudFormationTemplateTransform(object):
     
     @classmethod
     def _subclass_main(cls, parser=None, args=None):
+        file_transformer = _import_file_transformer()
+        
         parser = parser or argparse.ArgumentParser()
     
         parser.add_argument('transform_class')
