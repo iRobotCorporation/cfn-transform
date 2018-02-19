@@ -14,7 +14,7 @@ setup(
     author='Ben Kehoe',
     author_email='bkehoe@irobot.com',
     project_urls={
-        "https://github.com/benkehoe/cfn-transform",
+        "Source Code": "https://github.com/benkehoe/cfn-transform",
     },
     license='Apache Software License 2.0',
     classifiers=(

@@ -7,13 +7,6 @@ import six
 
 import yaml
 
-def _import_file_transformer():
-    try:
-        import file_transformer
-        return file_transformer
-    except Exception as e:
-        sys.exit("Can't import file_transformer. See https://github.com/benkehoe/file-transformer . {}".format(e))
-
 class CloudFormationTemplateTransform(object):
     """A class for creating transforms to CloudFormation templates.
     A tranform is instantiated with a template, and when applied changes that template
@@ -70,6 +63,7 @@ class CloudFormationTemplateTransform(object):
     def __init__(self, template, options={}):
         self.template = template
         self.options = options
+        self._remaining_args = options.get('remaining_args', [])
         self.applied = False
     
     def subtransformers(self):
@@ -128,21 +122,23 @@ class CloudFormationTemplateTransform(object):
         
         return self.template
     
+    def _run_hook(self, *args):
+        for name in args:
+            method_name = 'update_{}'.format(name)
+            if hasattr(self, method_name):
+                getattr(self, method_name)()
+    
     def _apply(self):
-        def hook(*args):
-            for name in args:
-                method_name = 'update_{}'.format(name)
-                if hasattr(self, method_name):
-                    getattr(self, method_name)()
         
-        hook('at_start', 'before_subtransformers')
+        
+        self._run_hook('at_start', 'before_subtransformers')
         
         for subtransformer in self.subtransformers():
             if inspect.isclass(subtransformer):
                 subtransformer = subtransformer(self.template)
             self.template = subtransformer.apply()
         
-        hook('after_subtransformers', 'before_sections')
+        self._run_hook('after_subtransformers', 'before_sections')
         
         desc = self.Description()
         if desc is not None:
@@ -169,80 +165,119 @@ class CloudFormationTemplateTransform(object):
             if field in self.template and not self.template[field]:
                 del self.template[field]
         
-        hook('after_sections', 'before_process_resource')
+        self._run_hook('after_sections', 'before_process_resource')
         
         if hasattr(self, 'process_resource'):
             self.map(self.template['Resources'], self.process_resource, resource_type_spec=getattr(self, 'PROCESS_RESOURCE_TYPE_SPEC', None))
         
-        hook('after_process_resource')
+        self._run_hook('after_process_resource')
         
-        hook('at_end')
+        self._run_hook('at_end')
     
     @classmethod
-    def main(cls, args=None):
+    def main(cls, **kwargs):
         """Run the given CloudFormationTemplateTransform class
         against commandline inputs, supporting both files and stdin/out.
+        Keyword args are passed to file_transformer.main()
         """
-        file_transformer = _import_file_transformer()
+        try:
+            import file_transformer
+        except Exception as e:
+            sys.exit("{}\nSee https://github.com/benkehoe/file-transformer".format(e))
         
         def loader(input_stream, args):
             return yaml.load(input_stream)
         
         def processor(input, args):
             transform = cls(input, vars(args))
-            transform.update_template()
+            transform.apply()
             return transform.template
         
         def dumper(output, output_stream, args):
             yaml.dump(output, output_stream)
         
-        return file_transformer.main(processor, loader, dumper, args=args)
+        return file_transformer.main(processor, loader, dumper, **kwargs)
     
     @classmethod
-    def _subclass_main(cls, parser=None, args=None):
-        file_transformer = _import_file_transformer()
-        
-        parser = parser or argparse.ArgumentParser()
+    def _subclass_main(cls, args=None):
+        parser = argparse.ArgumentParser()
     
         parser.add_argument('transform_class')
         
-        def post_parse_hook(parser, args):
-            xform = args.transform_class.split(':')
-    
-            try:
-                if len(xform) == 2:
-                    pkg_name, cls_name = xform
-                    module = importlib.import_module(pkg_name)
-                    subcls = getattr(module, cls_name)
-                elif len(xform) == 1:
-                    pkg_name = xform[0]
-                    module = importlib.import_module(pkg_name)
-                    subcls = inspect.getmembers(module, lambda o: (
-                        inspect.isclass(o) 
-                        and issubclass(o, cls)
-                        and o is not cls))
-                    if len(subcls) == 0:
-                        parser.exit("No {} subclass found in {}".format(cls.__name__, pkg_name))
-                    elif len(subcls) > 1:
-                        parser.exit("Multiple {} subclasses found in {}, please specify".format(cls.__name__, pkg_name))
-                    else:
-                        subcls = subcls[0][1]
+        args, remaining_args = parser.parse_known_args(args=args)
+        
+        xform = args.transform_class.split(':')
+
+        try:
+            if len(xform) == 2:
+                pkg_name, cls_name = xform
+                module = importlib.import_module(pkg_name)
+                subcls = getattr(module, cls_name)
+            elif len(xform) == 1:
+                pkg_name = xform[0]
+                module = importlib.import_module(pkg_name)
+                subcls = inspect.getmembers(module, lambda o: (
+                    inspect.isclass(o) 
+                    and issubclass(o, cls)
+                    and o is not cls))
+                if len(subcls) == 0:
+                    parser.exit("No {} subclass found in {}".format(cls.__name__, pkg_name))
+                elif len(subcls) > 1:
+                    names = [name for name, _ in subcls]
+                    parser.exit("Multiple transforms found in {}, please choose from: {}".format(pkg_name, ' '.join(names)))
                 else:
-                    parser.exit("Improperly formatted transform specifier")
-            except Exception as e:
-                if not args.quiet:
-                    import traceback
-                    traceback.print_exception(*sys.exc_info())
-                parser.exit("Exception importing transform class: {}".format(e))
+                    subcls = subcls[0][1]
+            else:
+                parser.exit("Improperly formatted transform specifier")
+        except Exception as e:
+#             import traceback
+#             traceback.print_exception(*sys.exc_info())
+            parser.exit("Exception importing transform class: {}".format(e))
+        
+        return subcls.main(args=remaining_args)
+    
+    @classmethod
+    def get_lambda_handler(cls):
+        def handler(event, context):
+            import boto3
             
-            args.xform_cls = subcls
+            def resolve_location(location):
+                if isinstance(location, dict):
+                    bucket = location['Bucket']
+                    key = location['Key']
+                else:
+                    raise ValueError("Unknown location {}".format(location))
+                return bucket, key
+            
+            if 'TemplateBody' in event:
+                template_body = event['TemplateBody']
+                if isinstance(template_body, six.string_types):
+                    template = template_body
+                else:
+                    template = yaml.safe_load(template_body)
+            elif 'TemplateURL' in event:
+                template_url = event['TemplateURL']
+                raise NotImplementedError
+            elif 'TemplateLocation' in event:
+                bucket, key = resolve_location(event['TemplateLocation'])
+                client = boto3.client('s3')
+                response = client.get_object(Bucket=bucket, Key=key)
+                template = yaml.load(response['Body'])
+                template = yaml.safe_load(template_body)
+            
+            transform = cls(template, options={'Context': context})
+            
+            transformed = transform.apply()
+            
+            if 'OutputLocation' not in event:
+                return transformed
+            
+            transformed_str = yaml.dump(transformed)
+            bucket, key = resolve_location(event['OutputLocation'])
+            client = boto3.client('s3')
+            response = client.put_object(Bucket=bucket, Key=key, Body=transformed_str)
+        return handler
         
-        def processor(input, args):
-            return args.xform_cls(input, vars(args)).apply()
-        
-        loader, dumper = file_transformer.get_yaml_io()
-        
-        return file_transformer.main(processor, loader, dumper, parser=parser, args=args, post_parse_hook=post_parse_hook)
 
 def module_main():
     return CloudFormationTemplateTransform._subclass_main()
