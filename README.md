@@ -21,7 +21,7 @@ returns the template, but it is also accessible as the `template` property.
 ## Building executable transformers
 
 There are two facilities for command line transforming of templates. Both require the
-`file-transformer` library, available at https://github.com/benkehoe/file-transformer .
+`file-transformer` library, available at [https://github.com/benkehoe/file-transformer](https://github.com/benkehoe/file-transformer).
 
 This library installs an executable, `cfn-transform`, that can load a 
 `CloudFormationTemplateTransformer` subclass and apply it to a template from a file
