@@ -64,7 +64,7 @@ class CloudFormationTemplateTransform(object):
             raise TypeError("Unknown resource_type_spec {}".format(resource_type_spec))
     
     @classmethod
-    def map(cls, resources, func, resource_type_spec):
+    def _map(cls, resources, func, resource_type_spec):
         remove = []
         add = {}
         for logical_id, resource in six.iteritems(resources):
@@ -187,7 +187,7 @@ class CloudFormationTemplateTransform(object):
         self._run_hook('after_sections', 'before_process_resource')
         
         if hasattr(self, 'process_resource'):
-            self.map(self.template['Resources'], self.process_resource, resource_type_spec=getattr(self, 'PROCESS_RESOURCE_TYPE_SPEC', None))
+            self._map(self.template['Resources'], self.process_resource, resource_type_spec=getattr(self, 'PROCESS_RESOURCE_TYPE_SPEC', None))
         
         self._run_hook('after_process_resource')
         

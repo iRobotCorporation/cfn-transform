@@ -1,2 +1,2 @@
+git+https://github.com/benkehoe/file-transformer
 pyyaml
-git+git://github.com/benkehoe/file-transformer.git
